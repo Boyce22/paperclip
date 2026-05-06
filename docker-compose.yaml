@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  paperclip:
+    build: .
+    container_name: paperclip-agent
+    ports:
+      - "3100:3100"
+    volumes:
+      - paperclip-data:/data
+      - ./prompts:/prompts
+    environment:
+      - PAPERCLIP_AGENT_JWT_SECRET=${PAPERCLIP_AGENT_JWT_SECRET}
+    restart: unless-stopped
+
+volumes:
+  paperclip-data:
