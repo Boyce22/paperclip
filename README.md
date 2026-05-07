@@ -1,6 +1,17 @@
-# Paperclip – Agentes de IA em Container
+# Paperclip + OpenCode – Agentes de IA em Container
 
-Configuração Docker para execução de agentes Paperclip AI em ambiente containerizado, com persistência de dados e suporte a deploy em produção.
+Configuração Docker para execução de agentes **Paperclip AI** e **OpenCode** em ambiente containerizado, com persistência de dados e suporte a deploy em produção.
+
+## Stack
+
+| Ferramenta     | Versão         | Função                                      |
+|----------------|----------------|---------------------------------------------|
+| Paperclip AI   | `2026.428.0`   | Orquestração de agentes de IA autônomos     |
+| OpenCode       | `1.14.40`      | CLI para interagir com LLMs (DeepSeek, etc) |
+| Node.js        | `20-slim`      | Base da imagem Docker                        |
+| PostgreSQL     | embedded       | Banco de dados gerenciado pelo Paperclip     |
+
+---
 
 ## Início Rápido
 
@@ -13,62 +24,88 @@ docker compose up -d
 
 Interface disponível em `http://localhost:3100`.
 
+---
+
 ## Estrutura do Repositório
 
 ```
 paperclip/
-├── Dockerfile              # Imagem baseada em node:20-slim com paperclipai CLI
+├── Dockerfile              # Imagem baseada em node:20-slim com Paperclip + OpenCode
 ├── docker-compose.yaml     # Serviço com volume nomeado e bind mount de prompts
 ├── .env.example            # Variáveis de ambiente necessárias
+├── README.md               # Esta documentação
 └── prompts/                # Diretório montado em /prompts no container
 ```
 
+---
+
 ## Operações Básicas
 
-| Ação        | Comando                          |
-|-------------|----------------------------------|
-| Iniciar     | `docker compose up -d`           |
-| Parar       | `docker compose down`            |
-| Logs        | `docker compose logs -f`         |
-| Reiniciar   | `docker compose restart`         |
-| Rebuild     | `docker compose build --no-cache`|
+| Ação                    | Comando                                    |
+|-------------------------|--------------------------------------------|
+| Iniciar                 | `docker compose up -d`                     |
+| Parar                   | `docker compose down`                      |
+| Logs                    | `docker compose logs -f`                   |
+| Reiniciar               | `docker compose restart`                   |
+| Rebuild (sem cache)     | `docker compose build --no-cache`          |
+| Resetar DB              | `docker compose down -v && docker compose up -d` |
+| Acessar shell container | `docker exec -it paperclip-agent sh`       |
 
 ---
 
-# Guia Técnico de Funcionamento e Deploy
+## Como Usar o OpenCode
 
-## Índice
+O OpenCode está instalado globalmente dentro do container. Para usá-lo:
 
-1. [Arquitetura](#arquitetura)
-2. [Imagem Docker](#imagem-docker)
-3. [Volumes e Persistência](#volumes-e-persistência)
-4. [Variáveis de Ambiente](#variáveis-de-ambiente)
-5. [Deploy em VPS](#deploy-em-vps)
-6. [Proxy Reverso e TLS](#proxy-reverso-e-tls)
-7. [Monitoramento e Logs](#monitoramento-e-logs)
-8. [Backup e Restauração](#backup-e-restauração)
-9. [Solução de Problemas](#solução-de-problemas)
+### 1. Acessar o container
+
+```bash
+docker exec -it paperclip-agent sh
+```
+
+### 2. Conectar com o Paperclip
+
+Dentro do container, execute:
+
+```bash
+opencode
+```
+
+Depois dentro da CLI do OpenCode, use o comando `/connect` para conectar ao Paperclip.
+
+### 3. Configurar DeepSeek como LLM Provider
+
+Após conectar o OpenCode ao Paperclip, você pode configurar o DeepSeek (ou outro provedor compatível com OpenAI) diretamente pelo OpenCode usando `/connect` e seguindo as instruções interativas.
+
+> **Nota:** O Paperclip suporta nativamente os provedores Claude (Anthropic) e OpenAI. O OpenCode expande essa capacidade permitindo conectar com outros provedores como DeepSeek.
 
 ---
 
 ## Arquitetura
 
 ```
-Cliente (navegador)
+Cliente (navegador / terminal)
         |
-        | HTTP :3100
+        | HTTP :3100 (Paperclip Web UI)
+        | opencode (CLI via docker exec)
         v
   Container Docker
-  ├── paperclipai run       <- processo principal (porta 3100)
-  └── /data/.paperclip/    <- estado persistido via volume nomeado
+  ├── paperclipai run         <- processo principal (porta 3100)
+  ├── opencode                <- CLI de interação com LLMs
+  └── /data/.paperclip/       <- estado persistido via volume nomeado
         └── instances/
             └── default/
-                └── logs/
+                ├── config.json
+                ├── db/           (PostgreSQL embedded)
+                ├── logs/
+                ├── secrets/
+                └── data/
 ```
 
-O container executa dois comandos em sequência no startup:
-1. `paperclipai onboard --yes` — provisionamento automático da instância sem interação.
-2. `paperclipai run` — inicia o servidor HTTP.
+O container executa os seguintes passos no startup:
+1. `paperclipai onboard --yes` — provisionamento automático da instância.
+2. `paperclipai run` — inicia o servidor HTTP Paperclip na porta 3100.
+3. `opencode` — disponível como CLI para interação manual.
 
 ---
 
@@ -76,7 +113,9 @@ O container executa dois comandos em sequência no startup:
 
 **Base:** `node:20-slim`
 
-**Versão da CLI:** `paperclipai@2026.428.0` (fixada para builds reproduzíveis)
+**Pacotes globais instalados:**
+- `paperclipai@2026.428.0` — CLI e servidor Paperclip
+- `opencode-ai` — CLI do OpenCode para interação com LLMs
 
 **Usuário de runtime:** `node` (não-root, UID 1000)
 
@@ -89,10 +128,10 @@ O container executa dois comandos em sequência no startup:
 
 **Porta exposta:** `3100/tcp`
 
-Para fixar a versão da CLI em uma versão diferente, edite a linha no `Dockerfile`:
+Para fixar as versões, edite o `Dockerfile`:
 
 ```dockerfile
-RUN npm install -g paperclipai@<versão>
+RUN npm install -g paperclipai@<versão> opencode-ai@<versão>
 ```
 
 ---
@@ -109,10 +148,29 @@ O `docker-compose.yaml` define dois pontos de montagem:
 O volume `paperclip-data` é gerenciado pelo Docker Engine. Para inspecionar:
 
 ```bash
-docker volume inspect paperclipai_paperclip-data
+docker volume inspect paperclip_paperclip-data
 ```
 
 Os prompts em `./prompts` são carregados diretamente do host, permitindo edição sem rebuild da imagem.
+
+---
+
+## Resetando o Banco de Dados
+
+Se precisar resetar o banco e gerar um novo link de cadastro:
+
+```bash
+# Remove o container e o volume de dados
+docker compose down -v
+
+# Sobe novamente (gera novo link de convite automático)
+docker compose up -d
+
+# Ver o novo link de cadastro nos logs
+docker compose logs --tail=30 paperclip
+```
+
+Procure nos logs por `Invite URL: http://localhost:3100/invite/...`
 
 ---
 
@@ -257,7 +315,7 @@ docker compose stop
 
 # Cria um tar do volume via container temporário
 docker run --rm \
-  -v paperclipai_paperclip-data:/data \
+  -v paperclip_paperclip-data:/data \
   -v "$(pwd)":/backup \
   node:20-slim \
   tar -czf /backup/paperclip-backup-$(date +%Y%m%d%H%M%S).tar.gz /data
@@ -278,7 +336,7 @@ pg_dump -U paperclip_user -h localhost paperclip_db \
 docker compose down
 
 docker run --rm \
-  -v paperclipai_paperclip-data:/data \
+  -v paperclip_paperclip-data:/data \
   -v "$(pwd)":/backup \
   node:20-slim \
   tar -xzf /backup/paperclip-backup-<timestamp>.tar.gz -C /
@@ -337,6 +395,15 @@ Inspecione os logs para identificar a causa raiz antes de desabilitar o restart 
 
 ```bash
 docker compose logs --tail=100 paperclip
+```
+
+**OpenCode não encontrado**
+
+Se o OpenCode não estiver disponível, faça o rebuild da imagem:
+
+```bash
+docker compose build --no-cache
+docker compose up -d
 ```
 
 ---

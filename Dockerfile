@@ -7,8 +7,8 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /data/.paperclip/instances/default && chown -R node:node /data
 WORKDIR /app
 
-# Instala o Paperclip globalmente
-RUN npm install -g paperclipai@2026.428.0
+# Instala o Paperclip e OpenCode globalmente
+RUN npm install -g paperclipai@2026.428.0 opencode-ai
 
 # Define variáveis de ambiente para persistência
 ENV PAPERCLIP_HOME=/data/.paperclip
